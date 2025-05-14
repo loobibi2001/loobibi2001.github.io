@@ -179,6 +179,15 @@
     }
 
     window.onload = () => {
+  const input = document.getElementById("passwordInput");
+  if (input) {
+    input.addEventListener("keypress", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        checkPassword();
+      }
+    });
+  }
       const today = new Date().toISOString().split("T")[0];
       document.getElementById("todayBanner").textContent = today;
       document.getElementById("date").value = today;
