@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CT 檢查排程表單</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBLgUdGaDarOAQF_5YGo4df6KyU8DsclA0",
+      authDomain: "ct-reserve.firebaseapp.com",
+      projectId: "ct-reserve",
+      storageBucket: "ct-reserve.firebasestorage.app",
+      messagingSenderId: "263734590112",
+      appId: "1:263734590112:web:34fec465ce56d91f68a7c5"
+    };
+
+    const encodeKey = (text) => text.replace(/[^a-zA-Z0-9]/g, "_");
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function getDatesForYear() {
+      const dates = [];
+      const now = new Date();
+      const year = now.getFullYear();
+      const start = new Date(year, 0, 1);
+      const end = new Date(year, 11, 31);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(new Date(d));
+      }
+      return dates;
+    }
+
+    const dailyTimes = [
+      "08:00", "08:20", "08:40", "09:00", "09:20", "09:40",
+      "10:00", "10:20", "10:40", "11:00",
+      "11:20 - tumor", "11:40 - 病房",
+      "13:20", "13:40", "14:00", "14:20", "14:40", "15:00", "15:20", "15:40",
+      "16:00 - 病房"
+    ];
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const timeSelect = document.getElementById("time");
+      const appointmentsRef = db.ref("appointments");
+
+      appointmentsRef.once("value", (snapshot) => {
+        const taken = snapshot.exists() ? Object.keys(snapshot.val()) : [];
+        const dates = getDatesForYear();
+        dates.forEach(date => {
+          const dateStr = date.toISOString().split("T")[0];
+          dailyTimes.forEach(slot => {
+            const full = `${dateStr} ${slot}`;
+            if (!taken.includes(encodeKey(full))) {
+              const opt = document.createElement("option");
+              opt.value = full;
+              opt.textContent = full;
+              timeSelect.appendChild(opt);
+            }
+          });
+        });
+      });
+
+      document.getElementById("ctForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const name = document.getElementById("name").value;
+        const chart = document.getElementById("chart").value;
+        const part = document.getElementById("part").value;
+        const time = document.getElementById("time").value;
+        const note = document.getElementById("note").value;
+
+        const key = encodeKey(time);
+        const refPath = db.ref("appointments/" + key);
+
+        refPath.once("value", async (snapshot) => {
+          if (snapshot.exists()) {
+            alert("⚠️ 此時段已被預約，請選擇其他時間。");
+          } else {
+            await refPath.set({
+              name,
+              chart,
+              part,
+              note,
+              time,
+              created: new Date().toISOString()
+            });
+            alert(`預約成功！\n\n姓名：${name}\n病歷號：${chart}\n部位：${part}\n時段：${time}`);
+            document.getElementById("ctForm").reset();
+            location.reload();
+          }
+        });
+      });
+
+      document.getElementById("loadTable").addEventListener("click", () => {
+        const tableBody = document.getElementById("recordBody");
+        tableBody.innerHTML = "";
+        db.ref("appointments").once("value", (snapshot) => {
+          const dataArr = [];
+          snapshot.forEach(child => {
+            const key = child.key;
+            const data = child.val();
+            data.key = key;
+            dataArr.push(data);
+          });
+          dataArr.sort((a, b) => new Date(a.created) - new Date(b.created));
+          dataArr.forEach(data => {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+              <td>${data.name}</td>
+              <td>${data.chart}</td>
+              <td>${data.part}</td>
+              <td>${data.time}</td>
+              <td>${data.note || ""}</td>
+              <td>${new Date(data.created).toLocaleString()}</td>
+              <td><button onclick="deleteEntry('${data.key}')">刪除</button></td>
+            `;
+            tableBody.appendChild(row);
+          });
+        });
+      });
+
+      document.getElementById("exportCSV").addEventListener("click", () => {
+        db.ref("appointments").once("value", (snapshot) => {
+          let csv = "姓名,病歷號,部位,時段,備註,時間\n";
+          snapshot.forEach(child => {
+            const d = child.val();
+            csv += `${d.name},${d.chart},${d.part},${d.time},${d.note || ""},${new Date(d.created).toLocaleString()}\n`;
+          });
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(blob);
+          link.download = "ct_appointments.csv";
+          link.click();
+        });
+      });
+
+      document.getElementById("searchInput").addEventListener("input", () => {
+        const filter = document.getElementById("searchInput").value.toLowerCase();
+        const rows = document.querySelectorAll("#recordBody tr");
+        rows.forEach(row => {
+          row.style.display = row.textContent.toLowerCase().includes(filter) ? "" : "none";
+        });
+      });
+    });
+
+    function deleteEntry(key) {
+      if (confirm("確定要刪除這筆資料嗎？")) {
+        db.ref("appointments/" + key).remove().then(() => {
+          alert("已刪除");
+          location.reload();
+        });
+      }
+    }
+  </script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: auto; padding: 20px; }
+    label { display: block; margin-top: 15px; font-weight: bold; }
+    input, select, textarea, button { width: 100%; padding: 8px; margin-top: 5px; font-size: 16px; }
+    button { background-color: #4CAF50; color: white; border: none; cursor: pointer; margin-top: 20px; }
+    button:hover { background-color: #45a049; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    .search-bar { margin-top: 20px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h2>CT 檢查排程表單</h2>
+  <form id="ctForm">
+    <label for="name">病人姓名：</label>
+    <input type="text" id="name" name="name" required>
+
+    <label for="chart">病歷號：</label>
+    <input type="text" id="chart" name="chart" required>
+
+    <label for="part">檢查部位：</label>
+    <select id="part" name="part" required>
+      <option value="">請選擇</option>
+      <option value="Brain">Brain</option>
+      <option value="Chest">Chest</option>
+      <option value="Abdomen">Abdomen</option>
+      <option value="Facial">Facial</option>
+      <option value="Tumor">Tumor</option>
+    </select>
+
+    <label for="time">檢查時段：</label>
+    <select id="time" name="time" required>
+      <option value="">請選擇</option>
+    </select>
+
+    <label for="note">備註：</label>
+    <textarea id="note" name="note" rows="3"></textarea>
+
+    <button type="submit">送出排程</button>
+  </form>
+
+  <hr>
+  <h3>📋 已預約清單</h3>
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="搜尋姓名、病歷號、部位或時段...">
+  </div>
+  <button id="loadTable">載入預約紀錄</button>
+  <button id="exportCSV">匯出 CSV</button>
+  <table>
+    <thead>
+      <tr>
+        <th>姓名</th>
+        <th>病歷號</th>
+        <th>部位</th>
+        <th>時段</th>
+        <th>備註</th>
+        <th>時間</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="recordBody"></tbody>
+  </table>
+</body>
+</html>
