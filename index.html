@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CT 檢查排程表單</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <style>
+    @media print {
+      body * { visibility: visible !important; }
+    }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f0f0f0; }
+    .filter-controls { margin: 10px 0; }
+  </style>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBLgUdGaDarOAQF_5YGo4df6KyU8DsclA0",
+      authDomain: "ct-reserve.firebaseapp.com",
+      projectId: "ct-reserve",
+      storageBucket: "ct-reserve.firebasestorage.app",
+      messagingSenderId: "263734590112",
+      appId: "1:263734590112:web:34fec465ce56d91f68a7c5"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function loadFilteredData() {
+      const table = document.getElementById("printableTable").getElementsByTagName('tbody')[0];
+      const startDate = document.getElementById("startDate").value;
+      const endDate = document.getElementById("endDate").value;
+      const partFilter = document.getElementById("partFilter").value;
+
+      table.innerHTML = "";
+      db.ref("appointments").once("value", (snapshot) => {
+        const records = [];
+        snapshot.forEach(child => {
+          const r = child.val();
+          const time = new Date(r.time);
+          const afterStart = !startDate || time >= new Date(startDate);
+          const beforeEnd = !endDate || time <= new Date(endDate);
+          const matchPart = !partFilter || r.part === partFilter;
+          if (afterStart && beforeEnd && matchPart) records.push(r);
+        });
+        records.sort((a, b) => new Date(a.time) - new Date(b.time));
+        records.forEach(r => {
+          const row = table.insertRow();
+          row.insertCell().innerText = r.time;
+          row.insertCell().innerText = r.name;
+          row.insertCell().innerText = r.chart;
+          row.insertCell().innerText = r.part;
+          row.insertCell().innerText = r.note || "";
+        });
+      });
+    }
+  </script>
+</head>
+<body>
+  <h2>CT 排程表單（含列印功能）</h2>
+  <div class="filter-controls">
+    <label>起始日期：<input type="date" id="startDate"></label>
+    <label>結束日期：<input type="date" id="endDate"></label>
+    <label>部位篩選：
+      <select id="partFilter">
+        <option value="">全部</option>
+        <option value="Brain">Brain</option>
+        <option value="Chest">Chest</option>
+        <option value="Abdomen">Abdomen</option>
+        <option value="Facial">Facial</option>
+        <option value="Tumor">Tumor</option>
+      </select>
+    </label>
+    <button onclick="loadFilteredData()">載入資料</button>
+    <button onclick="window.print()">列印整頁</button>
+  </div>
+  <table id="printableTable">
+    <thead>
+      <tr>
+        <th>檢查時間</th>
+        <th>病人姓名</th>
+        <th>病歷號</th>
+        <th>檢查部位</th>
+        <th>備註</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</body>
+</html>
