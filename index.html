@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CT 檢查排程表單</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 1200px; margin: auto; padding: 20px; display: flex; flex-direction: column; }
+    input, select, button, textarea {
+      display: block; width: 100%; margin: 10px 0; padding: 8px; font-size: 16px;
+    }
+    button { background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+    th { background: #f0f0f0; }
+    @media print { .noprint { display: none !important; } }
+    #sealPanel { float: right; border: 1px solid #ccc; padding: 10px; margin-left: 20px; width: 280px; background: #f9f9f9; }
+    #formSection { flex: 1; max-width: 800px; }
+  </style>
+</head>
+<body>
+<div id="loginForm">
+  <h3>🔒 請輸入密碼進入系統</h3>
+  <input type="password" id="passwordInput" placeholder="輸入密碼" />
+  <button onclick="checkPassword()">登入</button>
+</div>
+
+<div id="protected" style="display:none;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div id="formSection">
+      <h2>CT 檢查排程表單</h2>
+      <div>📅 今日日期：<span id="todayBanner"></span></div>
+      <label>病人姓名：<input id="name" /></label>
+      <label>病歷號：<input id="chart" /></label>
+      <label>檢查部位：
+        <select id="part">
+          <option>請選擇</option>
+<option>腎臟電腦斷層攝影排出相 CTU(打藥)</option>
+<option>心臟鈣化電腦斷層攝影 Calcification(不打藥)</option>
+<option>心臟電腦斷層血管攝影套組 HEART CTA+Calcification(打藥)</option>
+          <option>常規頭部 brain(打藥)</option>
+          <option>常規頭部 brain(不打藥)</option>
+<option>常規顳骨 Temporal bone(打藥)</option>
+<option>常規顳骨 Temporal bone(不打藥)</option>
+<option>常規眼眶 orbital(打藥)</option>
+<option>常規眼眶 orbital(不打藥)</option>
+<option>常規副鼻竇 sinus(打藥)</option>
+<option>常規副鼻竇 sinus(不打藥)</option>
+<option>常規頸部 neck(打藥)</option>
+<option>常規頸部 neck(不打藥)</option>
+<option>常規頸椎 c-spine(打藥)</option>
+<option>常規頸椎 c-spine(不打藥)</option>
+<option>常規胸部 chest(打藥)</option>
+<option>常規胸部 chest(不打藥)</option>
+<option>低輻射劑量肺部篩檢 Low dose lung screen(不打藥)</option>
+<option>高解析肺部 HRCT(不打藥)</option>
+<option>常規腹部 Abdomen(打藥)</option>
+<option>常規腹部 Abdomen(不打藥)</option>
+<option>常規腰椎 L-spine(打藥)</option>
+<option>常規腰椎 L-spine(不打藥)</option>
+        <option>腦部電腦斷層血管攝影 Brain CTA(打藥)</option>
+<option>腦部電腦斷層血管攝影+灌注 Brain CTA+CTP(打藥)</option>
+<option>頸部電腦斷層血管攝影 Neck CTA(打藥)</option>
+<option>肺動脈電腦斷層血管攝影 PE(打藥)</option>
+<option>主動脈弓電腦斷層血管攝影 TAA(打藥)</option>
+<option>下肢血管電腦斷層血管攝影 AAA(打藥)</option>
+<option>肺動脈合併下肢深層靜脈攝影 DVT(打藥)</option>
+<option>肝臟電腦斷層多期攝影 Liver 3 phase(打藥)</option>
+<option>胰臟電腦斷層多期攝影 Pancreases 3 phase(打藥)</option>
+<option>腎臟電腦斷層多期攝影 Kidney 3 phase(打藥)</option>
+</select>
+      </label>
+      <label>檢查日期：<input type="date" id="date" onchange="disableUsedTimeSlots()" /></label>
+      <label>檢查時段：
+        <select id="time">
+          <option>請選擇</option>
+<option>08:00</option><option>08:20</option><option>08:40</option>
+          <option>09:00</option><option>09:20</option><option>09:40</option>
+          <option>10:00</option><option>10:20</option><option>10:40</option>
+          <option>11:00</option><option>11:20 tumor</option><option>11:40 病房</option>
+          <option>13:20</option><option>13:40</option><option>14:00</option>
+          <option>14:20</option><option>14:40</option><option>15:00</option>
+          <option>15:20</option><option>15:40</option><option>16:00 病房</option>
+</select>
+      </label>
+      <label>備註：<textarea id="note"></textarea></label>
+      <button onclick="submitForm()">送出排程</button>
+
+      <h3>📋 已預約清單</h3>
+      <label>篩選日期：<input type="date" id="dateFilter" onchange="renderTable()" /></label>
+      <input id="search" placeholder="搜尋姓名、病歷號、部位或時段..." oninput="renderTable()" />
+      <button onclick="loadRecords()">載入預約紀錄</button>
+      <button onclick="window.print()">列印整頁</button>
+
+      <table id="recordTable">
+        <thead><tr><th>姓名</th><th>病歷號</th><th>部位</th><th>日期</th><th>時段</th><th>備註</th><th class="noprint">操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div id="sealPanel">
+      <h4>📌 封印排檢時段管理</h4>
+      <label>選擇日期：<input type="date" id="sealDate" /></label>
+      <label><input type="checkbox" id="sealAM" /> 封印上午</label>
+      <label><input type="checkbox" id="sealPM" /> 封印下午</label>
+      <button onclick="saveSeal()">儲存封印設定</button>
+    
+<div style="margin-top: 20px;">
+  <h4>📋 封印排檢時段總覽</h4>
+  <ul id="sealSummaryList" style="padding-left: 20px;"></ul>
+</div>
+</div>
+  </div>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBLgUdGaDarOAQF_5YGo4df6KyU8DsclA0",
+  authDomain: "ct-reserve.firebaseapp.com",
+  databaseURL: "https://ct-reserve-default-rtdb.firebaseio.com",
+  projectId: "ct-reserve",
+  storageBucket: "ct-reserve.appspot.com",
+  messagingSenderId: "263734590112",
+  appId: "1:263734590112:web:34fec465ce56d91f68a7c5"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+let allData = [];
+let seals = {};
+function disableUsedTimeSlots() {
+  const selectedDate = document.getElementById("date").value;
+  const usedTimes = allData
+    .filter(r => typeof r.time === "string" && r.time.startsWith(selectedDate))
+    .map(r => r.time.split(" ")[1]);
+
+  const timeSelect = document.getElementById("time");
+  Array.from(timeSelect.options).forEach(opt => {
+    if (usedTimes.includes(opt.value)) {
+      opt.disabled = true;
+      opt.title = '此時段已被預約';
+    } else {
+      opt.disabled = false;
+      opt.title = '';
+    }
+  });
+}
+
+function updateSealSummary() {
+  const list = document.getElementById("sealSummaryList");
+  if (!list) return;
+  list.innerHTML = "";
+  Object.keys(seals).sort().forEach(date => {
+    const s = seals[date];
+    const label = `${date}：${s.am ? "上午封印" : ""}${s.am && s.pm ? "、" : ""}${s.pm ? "下午封印" : ""}`;
+    if (s.am || s.pm) {
+      const li = document.createElement("li");
+      li.textContent = label;
+      list.appendChild(li);
+    }
+  });
+}
+
+
+function checkPassword() {
+  const input = document.getElementById("passwordInput").value;
+  if (input === "km1234") {
+    document.getElementById("protected").style.display = "block";
+    document.getElementById("loginForm").style.display = "none";
+  } else alert("密碼錯誤");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const input = document.getElementById("passwordInput");
+  if (input) {
+    input.addEventListener("keypress", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        checkPassword();
+      }
+    });
+  }
+});
+
+function submitForm() {
+  const name = document.getElementById("name").value.trim();
+  const chart = document.getElementById("chart").value.trim();
+  const part = document.getElementById("part").value;
+  const date = document.getElementById("date").value;
+  const timeSlot = document.getElementById("time").value;
+  const note = document.getElementById("note").value.trim();
+  if (!name || !chart || part === "請選擇" || timeSlot === "請選擇" || !date)
+    return alert("請完整填寫");
+
+  const [hour] = timeSlot.split(":");
+  const isAM = parseInt(hour) < 12;
+  if ((isAM && seals[date]?.am) || (!isAM && seals[date]?.pm)) {
+    return alert("該日期時段已封印，無法排檢！");
+  }
+
+  const time = `${date} ${timeSlot}`;
+  const record = { name, chart, part, time, note, createdAt: Date.now() };
+  db.ref("appointments").push(record, err => {
+    if (!err) {
+      alert("已送出");
+      document.querySelectorAll("input, textarea").forEach(el => el.value = "");
+      document.getElementById("part").selectedIndex = 0;
+      document.getElementById("time").selectedIndex = 0;
+      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().split("T")[0];
+      document.getElementById("date").value = today;
+      document.getElementById("dateFilter").value = today;
+      loadRecords();
+    }
+  });
+}
+
+function loadRecords() {
+  db.ref("appointments").once("value", snap => {
+    allData = [];
+    snap.forEach(child => {
+      const d = child.val();
+      d.key = child.key;
+      allData.push(d);
+    });
+    renderTable();
+    disableUsedTimeSlots();
+  });
+  db.ref("seals").once("value", snap => {
+    seals = snap.val() || {};
+    updateSealSummary();
+  });
+}
+
+function renderTable() {
+  const q = document.getElementById("search").value.toLowerCase();
+  const filterDate = document.getElementById("dateFilter").value;
+  const tbody = document.querySelector("tbody");
+  tbody.innerHTML = "";
+
+  allData.filter(r => {
+    const matchDate = !filterDate || (typeof r.time === "string" && r.time.startsWith(filterDate));
+    const matchesKeyword = !q || Object.values(r).some(v =>
+      typeof v === "string" && v.toLowerCase().includes(q)
+    );
+    return matchDate && matchesKeyword;
+  }).sort((a, b) => a.time.localeCompare(b.time)).forEach(r => {
+    let dateOnly = "—", showTime = "—";
+    if (typeof r.time === "string") {
+      const parts = r.time.split(" ");
+      dateOnly = parts[0];
+      showTime = r.time;
+    }
+    const tr = tbody.insertRow();
+    tr.innerHTML = `
+      <td>${r.name}</td><td>${r.chart}</td><td>${r.part}</td><td>${dateOnly}</td><td>${showTime}</td><td>${r.note || ""}</td>
+      <td class="noprint"><button onclick="removeRecord('${r.key}')">刪除</button></td>
+    `;
+  });
+}
+
+function removeRecord(key) {
+  if (confirm("確定刪除？")) {
+    db.ref("appointments/" + key).remove(() => loadRecords());
+  }
+}
+
+function saveSeal() {
+  const date = document.getElementById("sealDate").value;
+  const am = document.getElementById("sealAM").checked;
+  const pm = document.getElementById("sealPM").checked;
+  if (!date) return alert("請選擇日期");
+  if (!am && !pm) {
+    db.ref("seals/" + date).remove(() => {
+      alert("已取消封印");
+      loadRecords();
+    });
+  } else {
+    db.ref("seals/" + date).set({ am, pm }, () => {
+      alert("封印設定已儲存");
+      loadRecords();
+    });
+  }
+}
+
+window.onload = () => {
+  const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  const today = now.toISOString().split("T")[0];
+  document.getElementById("todayBanner").textContent = today;
+  document.getElementById("date").value = today;
+  document.getElementById("dateFilter").value = today;
+  document.getElementById("sealDate").value = today;
+  loadRecords();
+};
+</script>
+</body>
+</html>
