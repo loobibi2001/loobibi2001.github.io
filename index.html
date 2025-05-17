@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>檢查排程表單</title>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<style>
+    option.used-slot{color:red !important; font-weight:bold;}
+    option.sealed-slot { color: #007bff !important; font-style: italic; }
+    body { font-family: sans-serif; max-width: 1200px; margin: auto; padding: 20px; display: flex; flex-direction: column; }
+    input, select, button, textarea {
+      display: block; width: 100%; margin: 10px 0; padding: 8px; font-size: 16px;
+    }
+    button { background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+    th { background: #f0f0f0; }
+    @media print { .noprint { display: none !important; } }
+    #sealPanel { float: right; border: 1px solid #ccc; padding: 10px; margin-left: 20px; width: 280px; background: #f9f9f9; }
+    #formSection { flex: 1; max-width: 800px; }
+
+    body {
+      font-family: "Segoe UI", "Noto Sans TC", sans-serif;
+      background: url('8c829460-d144-11e9-8e6f-74942275b45f.jpg') no-repeat center center fixed;
+      background-size: cover;
+      backdrop-filter: blur(4px);
+      color: #333;
+    }
+    input, select, button, textarea {
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+    button {
+      background-color: #ffd1dc;
+      color: black;
+      transition: 0.3s ease;
+    }
+    button:hover {
+      background-color: #f48fb1;
+    }
+    table {
+      background: rgba(255,255,255,0.95);
+    }
+    th {
+      background: #ffe4ec;
+      color: #880e4f;
+    }
+    #sealPanel {
+      background: rgba(255,255,255,0.85);
+    }
+
+    /* 用於封印選項標籤的對齊 */
+    #sealPanel label.seal-option {
+        display: flex; /* 使用 Flexbox 布局 */
+        align-items: center; /* 垂直置中對齊 */
+        margin-bottom: 8px; /* 與下方元素的間距 */
+    }
+    #sealPanel label.seal-option input[type="checkbox"] {
+        width: auto; /* 讓 checkbox 根據內容自動調整寬度 */
+        margin-right: 8px; /* checkbox 與文字之間的間距 */
+        margin-top: 0; /* 移除 input 預設的上邊距，交由 flex 控制 */
+        margin-bottom: 0; /* 移除 input 預設的下邊距 */
+    }
+
+
+    @media print {
+      body * {
+        visibility: hidden !important;
+      }
+      #printCombinedArea, #printCombinedArea * {
+        visibility: visible !important;
+      }
+      #printCombinedArea {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 90%;
+        margin: 20px auto;
+        background: white;
+        padding: 15px;
+        font-size: 12px; /* 列印字體大小 */
+        box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      }
+      #printCombinedArea table {
+        font-size: 11px; /* 列印表格字體大小 */
+        width: 100%;
+        margin: auto;
+        border-collapse: collapse;
+      }
+      #printCombinedArea th, #printCombinedArea td {
+        border: 1px solid #ccc;
+        padding: 3px;
+      }
+      #printCombinedArea h3 {
+        font-size: 16px; /* 列印標題字體大小 */
+      }
+    }
+
+    table th:nth-child(1), /* Name */
+    table td:nth-child(1) {
+      width: 100px;
+    }
+    table th:nth-child(2), /* Chart */
+    table td:nth-child(2) {
+      width: 80px;
+    }
+     table th:nth-child(3), /* Part */
+    table td:nth-child(3) {
+      width: auto; /* Let part take remaining space */
+    }
+    table th:nth-child(4), /* Date (in list) */
+    table td:nth-child(4) {
+      width: 90px;
+    }
+    table th:nth-child(5), /* Time (in list) */
+    table td:nth-child(5) {
+      width: 120px;
+    }
+
+
+    #recordTable th, #recordTable td {
+      color: #000 !important;
+    }
+</style>
+</head>
+<body>
+
+<div id="loginForm">
+<h3>🔒 請輸入密碼進入系統</h3>
+<input id="passwordInput" placeholder="輸入密碼" type="password"/>
+<button onclick="checkPassword()">登入</button>
+</div>
+
+<div id="protected" style="display:none;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div id="formSection">
+      <div class="noprint" style="margin-bottom:10px;"><img src="logo.png" style="height:60px;" alt="Logo"></div>
+      <h2>檢查排程表單（<span id="modeTitle">CT</span> 模組）</h2>
+      <div style="margin-bottom:10px;">
+        <button onclick="switchMode('CT')">切換為 CT</button>
+        <button onclick="switchMode('MRI')">切換為 MRI</button>
+        <button onclick="switchMode('BD')">切換為 BD</button>
+        <button onclick="switchMode('IVP')">切換為 IVP</button>
+      </div>
+      <div>📅 今日日期：<span id="todayBanner"></span></div>
+      <button onclick="simulateCardRead()" style="margin-bottom:10px;">🔘 模擬讀卡（王小明）</button>
+      <div id="lookupResult" style="font-weight:bold; margin-top:10px; margin-bottom:10px; min-height: 20px;"></div>
+      <label>病人姓名：<input id="name"/></label>
+      <label>病歷號：<input id="chart"/></label>
+      <label>檢查部位：
+        <input id="part" list="ctPartsList" placeholder="請輸入或選擇部位">
+        <datalist id="ctPartsList">
+          <option value="心臟鈣化電腦斷層攝影 Calcification(不打藥)">
+          <option value="心臟電腦斷層血管攝影套組 HEART CTA+Calcification(打藥)">
+          <option value="頭部 brain(打藥)">
+          <option value="頭部 brain(不打藥)">
+          <option value="頸部 neck(打藥)">
+          <option value="頸部 neck(不打藥)">
+          <option value="頸椎 c-spine(打藥)">
+          <option value="頸椎 c-spine(不打藥)">
+          <option value="胸部 chest(打藥)">
+          <option value="胸部 chest(不打藥)">
+          <option value="低輻射劑量肺部篩檢 Low dose lung screen(不打藥)">
+          <option value="高解析肺部 HRCT(不打藥)">
+          <option value="腹部 Abdomen+PELVIS(打藥)">
+          <option value="腹部 Abdomen+PELVIS(不打藥)">
+          <option value="腰椎 L-spine(打藥)">
+          <option value="腰椎 L-spine(不打藥)">
+          <option value="胸椎 T-spine(打藥)">
+          <option value="胸椎 T-spine(不打藥)">
+          <option value="4肢 Limbs(打藥)">
+          <option value="4肢 Limbs(不打藥)">
+        </datalist>
+      </label>
+      <label>檢查日期：<input id="date" onchange="disableUsedTimeSlots()" type="date"/></label>
+      <label>檢查時段：
+        <select id="time"></select>
+      </label>
+      <label>備註：<textarea id="note"></textarea></label>
+      <button onclick="submitForm()">送出排程</button>
+      <h3>📋 已預約清單</h3>
+      <label>篩選日期：<input id="dateFilter" onchange="renderTable()" type="date"/></label>
+      <input id="search" oninput="renderTable()" placeholder="搜尋姓名、病歷號、部位或時段..."/>
+      <button onclick="loadRecords()">載入預約紀錄</button>
+      <button onclick="generateCombinedPrint()">產出列印總表</button>
+      <table id="recordTable">
+        <thead><tr><th>姓名</th><th>病歷號</th><th>部位</th><th>日期</th><th>時段</th><th>備註</th><th class="noprint">操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="printCombinedArea" style="display:none; margin-top:30px;"></div>
+    </div>
+
+    <div id="sealPanel" style="display:none;">
+      <h4>📌 封印排檢時段管理 (<span id="sealModeTitle">CT</span>)</h4>
+      <label>選擇日期：<input id="sealDate" type="date"/></label>
+      <label class="seal-option"><input id="sealAM" type="checkbox"/><span>封印上午</span></label>
+      <label class="seal-option"><input id="sealPM" type="checkbox"/><span>封印下午</span></label>
+      <button onclick="saveSeal()">儲存封印設定</button>
+      <div style="margin-top: 20px;">
+        <h4>📋 <span id="sealSummaryTitle">CT</span> 封印總覽</h4>
+        <ul id="sealSummaryList" style="padding-left: 20px; max-height: 200px; overflow-y: auto;"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBLgUdGaDarOAQF_5YGo4df6KyU8DsclA0", // 請替換成您自己的 Firebase API Key
+  authDomain: "ct-reserve.firebaseapp.com", // 請替換成您自己的 Firebase Auth Domain
+  databaseURL: "https://ct-reserve-default-rtdb.firebaseio.com", // 請替換成您自己的 Firebase Database URL
+  projectId: "ct-reserve", // 請替換成您自己的 Firebase Project ID
+  storageBucket: "ct-reserve.appspot.com", // 請替換成您自己的 Firebase Storage Bucket
+  messagingSenderId: "263734590112", // 請替換成您自己的 Firebase Messaging Sender ID
+  appId: "1:263734590112:web:34fec465ce56d91f68a7c5" // 請替換成您自己的 Firebase App ID
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let mode = 'CT'; // 當前操作的模組 (CT, MRI, BD, IVP)
+let allData = []; // 當前模組載入的所有預約資料
+let currentModeActiveSeals = {}; // 當前模組 (CT或MRI) 的封印資料
+
+// 各模組的檢查部位列表
+const ctParts = [
+  "請選擇", "心臟鈣化電腦斷層攝影 Calcification(不打藥)", "心臟電腦斷層血管攝影套組 HEART CTA+Calcification(打藥)",
+  "頭部 brain(打藥)", "頭部 brain(不打藥)", "頸部 neck(打藥)", "頸部 neck(不打藥)",
+  "頸椎 c-spine(打藥)", "頸椎 c-spine(不打藥)", "胸部 chest(打藥)", "胸部 chest(不打藥)",
+  "低輻射劑量肺部篩檢 Low dose lung screen(不打藥)", "高解析肺部 HRCT(不打藥)",
+  "腹部 Abdomen+PELVIS(打藥)", "腹部 Abdomen+PELVIS(不打藥)", "腰椎 L-spine(打藥)", "腰椎 L-spine(不打藥)",
+  "胸椎 T-spine(打藥)", "胸椎 T-spine(不打藥)", "4肢 Limbs(打藥)", "4肢 Limbs(不打藥)"
+];
+const bdParts = [ "請選擇", "腰椎骨質密度(L-SPINE)", "兩側髖關節骨質密度(Bilateral HIP)", "腰椎骨質密度(L-SPINE) + 兩側髖關節骨質密度(Bilateral HIP)", "腰椎側位骨質密度(L-SPINE Lateral)" ];
+const ivpParts = [ "請選擇", "靜脈注射泌尿系統攝影檢查(IVP)" ];
+const mriParts = [ // MRI 檢查部位 (可自訂)
+  "請選擇", "MRI 頭部 Brain (不打藥)", "MRI 頭部 Brain (打藥)", "MRI 頸椎 C-spine (不打藥)",
+  "MRI 胸椎 T-spine (不打藥)", "MRI 腰椎 L-spine (不打藥)", "MRI 骨盆 Pelvis (不打藥)",
+  "MRI 肩關節 Shoulder (不打藥)", "MRI 肘關節 Elbow (不打藥)", "MRI 腕關節 Wrist (不打藥)",
+  "MRI 髖關節 Hip (不打藥)", "MRI 膝關節 Knee (不打藥)", "MRI 踝關節 Ankle (不打藥)",
+  "MRI 乳房 Breast (打藥)"
+];
+
+/**
+ * 切換操作模組 (CT, MRI, BD, IVP)
+ * @param {string} newMode - 新的模組名稱
+ */
+function switchMode(newMode) {
+  mode = newMode;
+  document.getElementById("modeTitle").textContent = mode; // 更新標題中的模組名稱
+  document.getElementById("sealModeTitle").textContent = mode; // 更新封印面板的模組名稱
+  document.getElementById("sealSummaryTitle").textContent = mode; // 更新封印總覽的模組名稱
+  // 只有 CT 和 MRI 模組顯示封印面板
+  document.getElementById("sealPanel").style.display = (mode === "CT" || mode === "MRI") ? "block" : "none";
+
+  const partContainer = document.getElementById("part").parentElement; // 檢查部位的容器
+  let partInputHtml = ''; // 檢查部位輸入欄位的 HTML
+
+  // 根據模組設定檢查部位的輸入方式 (datalist 或 select)
+  if (mode === "CT") {
+    partInputHtml = `<input id="part" list="ctPartsDataList" placeholder="請輸入或選擇CT部位">
+                     <datalist id="ctPartsDataList">${ctParts.slice(1).map(p => `<option value="${p}">`).join('')}</datalist>`;
+  } else if (mode === "MRI") {
+    partInputHtml = `<input id="part" list="mriPartsDataList" placeholder="請輸入或選擇MRI部位">
+                     <datalist id="mriPartsDataList">${mriParts.slice(1).map(p => `<option value="${p}">`).join('')}</datalist>`;
+  } else { // BD 和 IVP 使用下拉選單
+    const partsList = mode === "BD" ? bdParts : ivpParts;
+    const partSelect = document.createElement("select");
+    partSelect.id = "part";
+    partSelect.innerHTML = partsList.map(p => `<option value="${p}">${p}</option>`).join('');
+    partContainer.innerHTML = "檢查部位：<br>"; // 清空並設定標題
+    partContainer.appendChild(partSelect);
+  }
+
+  // 如果是 CT 或 MRI，則使用 datalist
+  if (mode === "CT" || mode === "MRI") {
+      partContainer.innerHTML = `檢查部位：<br>${partInputHtml}`;
+  }
+
+  // 根據模組設定檢查時段的選項
+  const timeSelect = document.getElementById("time");
+  let timeOptions = ['<option value="">請選擇</option>']; // 預設選項
+  if (mode === "CT") {
+    timeOptions.push(
+      '<option value="(HEART CTA+鈣化分析)1">(HEART CTA+鈣化分析)1</option>',
+      '<option value="(HEART CTA+鈣化分析)2">(HEART CTA+鈣化分析)2</option>',
+      '08:00', '08:20', '08:40', '09:00', '09:20', '09:40', '10:00', '10:20', '10:40',
+      '11:00', '11:20 tumor', '11:40 病房', '13:20', '13:40', '14:00', '14:20',
+      '14:40', '15:00', '15:20', '15:40', '16:00 病房'
+    );
+  } else if (mode === "MRI") { // MRI 時段 (可自訂)
+    timeOptions.push(
+      '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+      '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'
+    );
+  } else { // BD, IVP 時段 (與 CT 相同)
+    timeOptions.push(
+      '08:00', '08:20', '08:40', '09:00', '09:20', '09:40', '10:00', '10:20', '10:40',
+      '11:00', '11:20 tumor', '11:40 病房', '13:20', '13:40', '14:00', '14:20',
+      '14:40', '15:00', '15:20', '15:40', '16:00 病房'
+    );
+  }
+  timeSelect.innerHTML = timeOptions.map(t => t.startsWith('<opt') ? t : `<option value="${t}">${t}</option>`).join('');
+
+  // 特殊時段標色
+  Array.from(timeSelect.options).forEach(function(opt) {
+    if (opt.text.includes("(HEART CTA+鈣化分析)")) {
+      opt.style.color = 'green';
+      opt.style.fontWeight = 'bold';
+    }
+  });
+
+  document.getElementById("part").value = ""; // 清空檢查部位
+  document.getElementById("time").value = ""; // 清空檢查時段
+  loadRecords(); // 重新載入該模組的預約紀錄和封印狀態
+}
+
+/**
+ * 清理一個月前的舊預約紀錄和封印資料
+ */
+function cleanupOldRecords() {
+  const today = new Date();
+  const cutoff = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate()); // 一個月前的日期
+
+  // 清理各模組的預約紀錄
+  const appointmentPaths = ["appointments", "bd_appointments", "ivp_appointments", "mri_appointments"];
+  appointmentPaths.forEach(path => {
+    db.ref(path).orderByChild("createdAt").endAt(cutoff.getTime()).once("value", snap => {
+      snap.forEach(child => {
+         db.ref(path + "/" + child.key).remove();
+      });
+    });
+  });
+
+  // 清理 CT 和 MRI 的封印資料
+  const sealPaths = ["seals_ct", "seals_mri"];
+  sealPaths.forEach(path => {
+    db.ref(path).once("value", snap => {
+      snap.forEach(child => {
+        const sealDate = new Date(child.key); // 日期字串 "YYYY-MM-DD"
+        if (sealDate < cutoff) {
+          db.ref(path + "/" + child.key).remove();
+        }
+      });
+    });
+  });
+}
+
+/**
+ * 更新檢查時段下拉選單的狀態 (隱藏已預約時段，標示封印時段)
+ * 此函數的邏輯會統一處理一般時段和特殊命名時段 (如 HEART CTA)。
+ */
+function disableUsedTimeSlots() {
+  const selectedDate = document.getElementById("date").value; // 獲取選擇的檢查日期
+  const timeSelect = document.getElementById("time"); // 時段下拉選單
+
+  // 重設所有選項的狀態
+  Array.from(timeSelect.options).forEach(opt => {
+    opt.disabled = false; // 啟用選項
+    opt.style.display = ''; // 顯示選項
+    opt.classList.remove("used-slot", "sealed-slot"); // 移除樣式
+    opt.style.color = ''; // 重設顏色
+    opt.style.fontWeight = ''; // 重設字重
+    opt.style.fontStyle = ''; // 重設字體樣式
+    // 特殊時段重新標色
+    if (opt.text.includes("(HEART CTA+鈣化分析)")) {
+        opt.style.color = 'green';
+        opt.style.fontWeight = 'bold';
+    }
+  });
+
+  if (!selectedDate) return; // 如果沒有選擇日期，則不進行操作
+
+  // 獲取已選擇日期當天已被預約的時段
+  // .map(r => r.time.split(" ").slice(1).join(" "))確保能正確提取包含空格的特殊時段名稱以及一般HH:MM時段
+  const usedTimesOnSelectedDate = allData
+    .filter(r => typeof r.time === "string" && r.time.startsWith(selectedDate))
+    .map(r => {
+        const parts = r.time.split(" ");
+        return parts.slice(1).join(" "); // 正確提取如 "(HEART CTA+鈣化分析)1" 或 "11:20 tumor"
+    });
+
+  // 獲取當前模組在選擇日期的封印狀態
+  const dateSeals = (mode === "CT" || mode === "MRI") ? currentModeActiveSeals[selectedDate] : null;
+
+  // 遍歷時段選項，更新狀態
+  Array.from(timeSelect.options).forEach(opt => {
+    if (!opt.value || opt.value === "請選擇") return; // 跳過預設提示選項
+
+    let isHidden = false; // 標記選項是否應被隱藏
+
+    // 檢查時段是否已被預約 (此處的 opt.value 會與 usedTimesOnSelectedDate 中的元素比較)
+    // 對於 HEART CTA，opt.value 是 "(HEART CTA+鈣化分析)1" 等，usedTimesOnSelectedDate 也包含此類值
+    if (usedTimesOnSelectedDate.includes(opt.value)) {
+      opt.style.display = 'none'; // 直接隱藏已預約的時段 (包括 HEART CTA)
+      isHidden = true;
+    }
+
+    // 如果時段未被預約 (未隱藏)，再檢查是否被封印 (僅限 CT 和 MRI 的一般 HH:MM 時段)
+    // HEART CTA 這類特殊命名時段不受 AM/PM 封印影響
+    if (!isHidden && dateSeals) {
+      const [hourStr] = opt.value.split(":"); // 提取小時部分，例如 "08"
+      // 只有當 opt.value 是 HH:MM 格式時，parseInt(hourStr) 才能成功轉為數字
+      if (hourStr && !isNaN(parseInt(hourStr))) {
+        const hour = parseInt(hourStr);
+        let slotIsSealed = false; // 標記時段是否被封印
+        // 判斷上午或下午是否封印
+        if (hour < 12 && dateSeals.am) slotIsSealed = true; // 上午封印
+        if (hour >= 12 && dateSeals.pm) slotIsSealed = true; // 下午封印
+
+        if (slotIsSealed) {
+          opt.classList.add("sealed-slot"); // 添加封印樣式
+          opt.disabled = true; // 設為不可選
+        }
+      }
+    }
+  });
+}
+
+/**
+ * 更新封印總覽列表的顯示
+ */
+function updateSealSummary() {
+  const list = document.getElementById("sealSummaryList");
+  list.innerHTML = ""; // 清空舊列表
+  document.getElementById("sealSummaryTitle").textContent = mode; // 更新總覽標題的模組名稱
+
+  // 只為 CT 和 MRI 顯示封印總覽
+  if (mode !== "CT" && mode !== "MRI") return;
+
+  // 遍歷當前模組的封印資料並顯示
+  Object.keys(currentModeActiveSeals).sort().forEach(date => {
+    const s = currentModeActiveSeals[date];
+    if (s.am || s.pm) { // 如果該日期有封印上午或下午
+      const label = `${date}：${s.am ? "上午封印" : ""}${s.am && s.pm ? "、" : ""}${s.pm ? "下午封印" : ""}`;
+      const li = document.createElement("li");
+      li.textContent = label;
+      list.appendChild(li);
+    }
+  });
+}
+
+/**
+ * 當封印面板中的「選擇日期」改變時，更新「封印上午/下午」勾選框的狀態
+ */
+function updateSealCheckboxesForSelectedDate() {
+  const selectedSealDate = document.getElementById("sealDate").value;
+  const sealAMCheckbox = document.getElementById("sealAM");
+  const sealPMCheckbox = document.getElementById("sealPM");
+
+  // 如果沒有選擇日期，或者當前模組不是 CT 或 MRI，則取消勾選框
+  if (!selectedSealDate || (mode !== "CT" && mode !== "MRI")) {
+    sealAMCheckbox.checked = false;
+    sealPMCheckbox.checked = false;
+    return;
+  }
+
+  // 從 currentModeActiveSeals 中查找所選日期的封印狀態
+  const sealsForDate = currentModeActiveSeals[selectedSealDate];
+
+  if (sealsForDate) { // 如果找到該日期的封印資料
+    sealAMCheckbox.checked = sealsForDate.am || false; // 設定上午勾選框狀態
+    sealPMCheckbox.checked = sealsForDate.pm || false; // 設定下午勾選框狀態
+  } else { // 如果未找到，表示該日未封印
+    sealAMCheckbox.checked = false;
+    sealPMCheckbox.checked = false;
+  }
+}
+
+
+/**
+ * 檢查登入密碼
+ */
+function checkPassword() {
+  console.log("checkPassword function called."); // DEBUG
+  const passwordInputValue = document.getElementById("passwordInput").value;
+  console.log("Password entered:", passwordInputValue); // DEBUG
+  if (passwordInputValue === "km1234") {
+    console.log("Password correct. Hiding loginForm, showing protected."); // DEBUG
+    document.getElementById("protected").style.display = "block";
+    document.getElementById("loginForm").style.display = "none";
+    initializeForm();
+  } else {
+    console.log("Password incorrect."); // DEBUG
+    alert("密碼錯誤");
+  }
+}
+
+// DOMContentLoaded 事件監聽：頁面載入完成後執行
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("DOMContentLoaded event fired."); // DEBUG
+  const passwordInputEl = document.getElementById("passwordInput");
+  if (passwordInputEl) {
+    console.log("Password input field found."); // DEBUG
+    passwordInputEl.addEventListener("keypress", e => {
+      if (e.key === "Enter") {
+        console.log("Enter key pressed in password field."); // DEBUG
+        e.preventDefault();
+        checkPassword();
+      }
+    });
+  } else {
+    console.error("Password input field (id: passwordInput) not found!"); // DEBUG
+  }
+  // 檢查登入按鈕是否存在
+  const loginButton = document.querySelector("button[onclick='checkPassword()']");
+  if (loginButton) {
+    console.log("Login button with onclick='checkPassword()' found."); // DEBUG
+  } else {
+    console.error("Login button with onclick='checkPassword()' NOT found."); // DEBUG
+  }
+});
+
+/**
+ * 初始化表單：設定預設日期、載入紀錄等
+ */
+function initializeForm() {
+  console.log("initializeForm function called."); // DEBUG
+  switchMode('CT'); // 預設為 CT 模組
+  const now = new Date(Date.now() + 8 * 3600 * 1000); // 獲取當前 UTC+8 時間
+  const today = now.toISOString().split("T")[0]; // 格式化為 yyyy-MM-dd
+  document.getElementById("todayBanner").textContent = today; // 顯示今日日期
+  document.getElementById("date").value = today; // 預設檢查日期為今日
+  document.getElementById("dateFilter").value = today; // 預設篩選日期為今日
+  document.getElementById("sealDate").value = today; // 預設封印日期為今日
+
+  // 為封印面板的日期選擇框添加 change 事件監聽器
+  const sealDateInput = document.getElementById("sealDate");
+  if (sealDateInput) {
+    sealDateInput.addEventListener("change", updateSealCheckboxesForSelectedDate);
+    console.log("Event listener added to sealDate input."); // DEBUG
+  } else {
+    console.error("sealDate input not found for adding event listener."); // DEBUG
+  }
+
+  loadRecords(); // 載入預約紀錄
+  cleanupOldRecords(); // 清理舊紀錄
+  setupWebSocket(); // 設定 WebSocket 連線
+}
+
+
+/**
+ * 提交排程表單
+ */
+function submitForm() {
+  // 獲取表單各欄位的值
+  const name = document.getElementById("name").value.trim();
+  const chart = document.getElementById("chart").value.trim();
+  const part = document.getElementById("part").value;
+  const date = document.getElementById("date").value;
+  const timeSlot = document.getElementById("time").value;
+  const note = document.getElementById("note").value.trim();
+
+  // 基本的表單驗證
+  if (!name || !chart || part === "請選擇" || !part || !timeSlot || timeSlot === "請選擇" || !date) {
+    return alert("請完整填寫所有必填欄位（姓名、病歷號、部位、日期、時段）。");
+  }
+  if (!/^\d{8}$/.test(chart)) { // 驗證病歷號為8位數字
+    alert("病歷號碼必須是8位數字！");
+    document.getElementById("chart").focus();
+    return;
+  }
+
+  // 檢查是否與封印時段衝突 (僅限 CT 和 MRI)
+  const [hourString] = timeSlot.split(":");
+  const hour = parseInt(hourString);
+  const isAM = hour < 12; // 判斷是否為上午
+
+  if ((mode === "CT" || mode === "MRI") && currentModeActiveSeals[date]) {
+    const sealStatus = currentModeActiveSeals[date];
+    if ((isAM && sealStatus.am) || (!isAM && sealStatus.pm)) {
+      return alert(`該日期 (${date}) ${isAM ? '上午' : '下午'} 時段已封印 (${mode})，無法排檢！`);
+    }
+  }
+
+  const time = `${date} ${timeSlot}`; // 組合日期與時段
+  // 準備儲存到 Firebase 的資料物件
+  const record = { name, chart, part, time, note, createdAt: firebase.database.ServerValue.TIMESTAMP };
+
+  // 根據當前模組決定 Firebase 的儲存路徑
+  let refPath = "appointments"; // CT 預設路徑
+  if (mode === "BD") refPath = "bd_appointments";
+  else if (mode === "IVP") refPath = "ivp_appointments";
+  else if (mode === "MRI") refPath = "mri_appointments";
+
+  // 將資料推送到 Firebase
+  db.ref(refPath).push(record, err => {
+    if (!err) {
+      alert("排程已送出 (" + mode + ")");
+      // 清空部分表單欄位
+      ['name', 'chart', 'note'].forEach(id => document.getElementById(id).value = "");
+      document.getElementById("part").value = (mode === "CT" || mode === "MRI") ? "" : "請選擇";
+      document.getElementById("time").value = "";
+      loadRecords(); // 重新載入紀錄
+    } else {
+      alert("送出失敗：" + err.message);
+    }
+  });
+}
+
+/**
+ * 從 Firebase 載入預約紀錄和封印資料
+ */
+function loadRecords() {
+  console.log(`loadRecords called for mode: ${mode}`); // DEBUG
+  // 根據當前模組決定 Firebase 的讀取路徑
+  let appointmentRefPath = "appointments";
+  if (mode === "BD") appointmentRefPath = "bd_appointments";
+  else if (mode === "IVP") appointmentRefPath = "ivp_appointments";
+  else if (mode === "MRI") appointmentRefPath = "mri_appointments";
+
+  // 載入預約紀錄
+  db.ref(appointmentRefPath).orderByChild("time").once("value", snap => {
+    allData = []; // 清空舊資料
+    snap.forEach(child => {
+      const d = child.val();
+      d.key = child.key; // 加入 Firebase 的 key，方便後續操作
+      allData.push(d);
+    });
+    console.log(`Appointments loaded for ${mode}:`, allData.length); // DEBUG
+    renderTable(); // 渲染預約列表
+
+    // 載入封印資料 (僅限 CT 和 MRI)
+    let sealRefPathForMode = "";
+    if (mode === "CT") sealRefPathForMode = "seals_ct";
+    else if (mode === "MRI") sealRefPathForMode = "seals_mri";
+
+    currentModeActiveSeals = {}; // 重設當前模組的封印資料
+    if (sealRefPathForMode) {
+      db.ref(sealRefPathForMode).once("value", sealSnap => {
+        currentModeActiveSeals = sealSnap.val() || {};
+        console.log(`Seals loaded for ${mode}:`, currentModeActiveSeals); // DEBUG
+        updateSealSummary(); // 更新封印總覽顯示
+        disableUsedTimeSlots(); // 更新時段下拉選單狀態
+        updateSealCheckboxesForSelectedDate(); // 新增：載入封印後，同步更新勾選框狀態
+      });
+    } else { // 非 CT/MRI 模組，清空封印總覽並更新時段狀態
+      console.log(`No seals to load for mode: ${mode}`); // DEBUG
+      updateSealSummary();
+      disableUsedTimeSlots();
+      updateSealCheckboxesForSelectedDate(); // 新增：確保非 CT/MRI 模式下勾選框也被清空
+    }
+  });
+}
+
+/**
+ * 渲染預約紀錄表格
+ */
+function renderTable() {
+  const q = document.getElementById("search").value.toLowerCase(); // 獲取搜尋關鍵字
+  const filterDate = document.getElementById("dateFilter").value; // 獲取篩選日期
+  const tbody = document.querySelector("#recordTable tbody");
+  tbody.innerHTML = ""; // 清空表格內容
+
+  // 過濾並排序資料
+  allData.filter(r => {
+    const recordDateStr = (typeof r.time === "string") ? r.time.split(" ")[0] : "";
+    const matchDate = !filterDate || recordDateStr === filterDate; // 日期篩選
+    // 關鍵字篩選 (姓名、病歷號、部位、時段)
+    const matchesKeyword = !q || Object.values(r).some(v =>
+      typeof v === "string" && v.toLowerCase().includes(q)
+    );
+    return matchDate && matchesKeyword;
+  }).sort((a, b) => (a.time || "").localeCompare(b.time || "")).forEach(r => { // 按時間排序
+    let dateOnly = "—", timeOnly = "—";
+    if (typeof r.time === "string") {
+      const parts = r.time.split(" ");
+      dateOnly = parts[0];
+      timeOnly = parts.slice(1).join(" "); // 處理 "11:20 tumor" 這類時段
+    }
+    // 插入表格行
+    const tr = tbody.insertRow();
+    tr.innerHTML = `
+      <td>${r.name}</td><td>${r.chart}</td><td>${r.part}</td>
+      <td>${dateOnly}</td><td>${timeOnly}</td><td>${r.note || ""}</td>
+      <td class="noprint"><button onclick="removeRecord('${r.key}')">刪除</button></td>
+    `;
+  });
+}
+
+/**
+ * 儲存封印設定 (僅限 CT 和 MRI)
+ */
+function saveSeal() {
+  const date = document.getElementById("sealDate").value;
+  const am = document.getElementById("sealAM").checked; // 上午是否封印
+  const pm = document.getElementById("sealPM").checked; // 下午是否封印
+  if (!date) return alert("請選擇要封印的日期");
+  if (mode !== "CT" && mode !== "MRI") return alert("只有 CT 和 MRI 模式支援封印功能。");
+
+  // 根據模組決定 Firebase 儲存路徑
+  let sealRefPath = (mode === "CT" ? "seals_ct/" : "seals_mri/") + date;
+
+  if (!am && !pm) { // 如果上下午都未勾選，則移除該日期的封印設定
+    db.ref(sealRefPath).remove(() => {
+      alert(`日期 ${date} 的 (${mode}) 封印已取消`);
+      loadRecords(); // 重新載入以更新總覽和時段狀態
+    });
+  } else { // 儲存封印設定
+    db.ref(sealRefPath).set({ am, pm }, () => {
+      alert(`日期 ${date} 的 (${mode}) 封印設定已儲存`);
+      loadRecords(); // 重新載入
+    });
+  }
+}
+
+/**
+ * 產生列印報表 (MRI 獨立，CT/BD/IVP 合併)
+ */
+function generateCombinedPrint() {
+  const area = document.getElementById("printCombinedArea");
+  area.innerHTML = ""; // 清空之前的列印內容
+  const printDate = document.getElementById("dateFilter").value || document.getElementById("todayBanner").textContent; // 使用篩選日期或今日日期
+
+  let modesToPrint = [];
+  let mainPrintTitle = "";
+
+  if (mode === "MRI") { // 如果當前是 MRI 模式，只列印 MRI
+    mainPrintTitle = `${printDate} MRI 核磁共振 檢查排程`;
+    modesToPrint = [
+      { key: "MRI", path: "mri_appointments", name: "MRI 核磁共振" }
+    ];
+  } else { // 否則 (CT, BD, IVP 模式)，列印這三者的合併報表
+    mainPrintTitle = `${printDate} 各項檢查總表 (CT, BD, IVP)`;
+    modesToPrint = [
+      { key: "CT", path: "appointments", name: "CT 電腦斷層" },
+      { key: "BD", path: "bd_appointments", name: "BD 骨質密度" },
+      { key: "IVP", path: "ivp_appointments", name: "IVP 靜脈注射泌尿攝影" }
+    ];
+  }
+  area.innerHTML = `<h2>${mainPrintTitle}</h2>`; // 設定列印主標題
+
+  let results = [];
+  let completedFetches = 0;
+
+  // 遍歷需要列印的模組，從 Firebase 獲取資料
+  modesToPrint.forEach(module => {
+    db.ref(module.path).orderByChild("time").startAt(printDate).endAt(printDate + "\uf8ff").once("value", snap => {
+      const records = [];
+      snap.forEach(child => {
+        const d = child.val();
+        if (d.time && d.time.startsWith(printDate)) { // 確認是當日資料
+          records.push(d);
+        }
+      });
+      // 按時間排序並加入結果陣列
+      results.push({ modeName: module.name, data: records.sort((a,b) => (a.time || "").localeCompare(b.time || "")) });
+      completedFetches++;
+      // 所有模組資料獲取完成後，渲染列印表格
+      if (completedFetches === modesToPrint.length) {
+        renderPrintTable(results, printDate);
+      }
+    });
+  });
+}
+
+/**
+ * 渲染實際的列印表格內容
+ * @param {Array} allModulesData - 包含各模組排程資料的陣列
+ * @param {string} printDate - 列印的日期
+ */
+function renderPrintTable(allModulesData, printDate) {
+  const area = document.getElementById("printCombinedArea");
+  // 主標題已在 generateCombinedPrint 中設定
+
+  allModulesData.forEach(block => {
+    if (block.data.length === 0) return; // 如果該模組無資料則跳過
+
+    // 為每個模組建立子標題和表格
+    const h3 = document.createElement("h3");
+    h3.textContent = `📋 ${block.modeName} 檢查排程`;
+    area.appendChild(h3);
+
+    const table = document.createElement("table");
+    table.innerHTML = "<thead><tr><th>姓名</th><th>病歷號</th><th>部位</th><th>時段</th><th>備註</th></tr></thead>";
+    const tbody = document.createElement("tbody");
+
+    block.data.forEach(r => { // 遍歷該模組的每筆紀錄
+      const tr = document.createElement("tr");
+      const timeOnly = r.time ? r.time.split(" ").slice(1).join(" ") : "—"; // 提取時段部分
+      tr.innerHTML = [
+        r.name || "—", r.chart || "—", r.part || "—",
+        timeOnly, r.note || ""
+      ].map(txt => `<td style='border:1px solid #ccc; padding:4px;'>${txt}</td>`).join("");
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    area.appendChild(table);
+    area.appendChild(document.createElement("br")); // 模組間隔
+  });
+  area.style.display = "block"; // 顯示列印區域
+
+  // 設定列印後清除列印區域的事件
+  const clearPrintArea = () => {
+    area.innerHTML = "";
+    area.style.display = "none";
+    window.removeEventListener("afterprint", clearPrintArea);
+  };
+  window.addEventListener("afterprint", clearPrintArea);
+
+  window.print(); // 觸發瀏覽器列印
+
+  // 列印對話框關閉後的延遲清除 (備用)
+  setTimeout(() => {
+    if (area.style.display === "block") {
+        clearPrintArea();
+    }
+  }, 3000);
+}
+
+/**
+ * 模擬讀卡功能 (範例)
+ */
+function simulateCardRead() {
+  const nameToSimulate = "王小明";
+  document.getElementById("name").value = nameToSimulate; // 自動填入姓名
+  const currentMonthKey = new Date().toISOString().slice(0, 7); // 當前月份 yyyy-MM
+
+  // 需要查詢的模組路徑和名稱
+  const lookupModules = [
+      { path: "appointments", name: "CT" },
+      { path: "mri_appointments", name: "MRI" },
+      { path: "bd_appointments", name: "BD" },
+      { path: "ivp_appointments", name: "IVP" }
+  ];
+  let resultText = "";
+  let foundOverall = false;
+  let checkedModules = 0;
+
+  document.getElementById("lookupResult").innerHTML = "查詢中..."; // 顯示查詢狀態
+
+  // 遍歷各模組查詢該病患本月是否有排程
+  lookupModules.forEach(module => {
+    db.ref(module.path).orderByChild("name").equalTo(nameToSimulate).once("value", snap => {
+      snap.forEach(child => {
+        const d = child.val();
+        if (d.time && d.time.startsWith(currentMonthKey)) { // 檢查是否為本月紀錄
+          const timePart = d.time.split(" ")[1];
+          resultText += `📍 ${module.name}：${d.time.split(" ")[0]} ${timePart} ${d.part}<br>`;
+          foundOverall = true;
+        }
+      });
+      checkedModules++;
+      // 所有模組查詢完畢後更新結果
+      if (checkedModules === lookupModules.length) {
+        if (!foundOverall) resultText = `❌ 本月未找到 ${nameToSimulate} 的排程資料`;
+        document.getElementById("lookupResult").innerHTML = resultText;
+      }
+    });
+  });
+}
+
+/**
+ * 設定 WebSocket 連線 (用於接收刷卡資料等)
+ */
+function setupWebSocket() {
+  try {
+    const socket = new WebSocket("ws://localhost:8765"); // WebSocket 伺服器位址
+    socket.onopen = function() { console.log("WebSocket 連線成功"); };
+    socket.onmessage = function (event) { // 收到訊息時
+      try {
+        const data = JSON.parse(event.data); // 解析 JSON 資料
+        if (data.name) { // 如果有姓名資料
+          document.getElementById("name").value = data.name; // 自動填入姓名
+          // 以下邏輯同 simulateCardRead，用於查詢該病患的排程
+          const currentMonthKey = new Date().toISOString().slice(0, 7);
+          const lookupModules = [
+            { path: "appointments", name: "CT" }, { path: "mri_appointments", name: "MRI" },
+            { path: "bd_appointments", name: "BD" }, { path: "ivp_appointments", name: "IVP" }
+          ];
+          let resultText = "";
+          let foundOverall = false;
+          let checkedModules = 0;
+          document.getElementById("lookupResult").innerHTML = "讀卡查詢中...";
+
+          lookupModules.forEach(module => {
+            db.ref(module.path).orderByChild("name").equalTo(data.name).once("value", snap => {
+              snap.forEach(child => {
+                const d = child.val();
+                if (d.time && d.time.startsWith(currentMonthKey)) {
+                  const timePart = d.time.split(" ")[1];
+                  resultText += `📍 ${module.name}：${d.time.split(" ")[0]} ${timePart} ${d.part}<br>`;
+                  foundOverall = true;
+                }
+              });
+              checkedModules++;
+              if (checkedModules === lookupModules.length) {
+                if (!foundOverall) resultText = `❌ 本月未找到 ${data.name} 的排程資料`;
+                document.getElementById("lookupResult").innerHTML = resultText;
+              }
+            });
+          });
+        }
+      } catch (e) {
+        console.error("處理 WebSocket 訊息錯誤：", e);
+        document.getElementById("lookupResult").innerHTML = "處理讀卡資料錯誤";
+      }
+    };
+    socket.onerror = function(error) { console.error("WebSocket 錯誤：", error); document.getElementById("lookupResult").innerHTML = "WebSocket 連線錯誤"; };
+    socket.onclose = function() { console.log("WebSocket 連線關閉"); document.getElementById("lookupResult").innerHTML = "WebSocket 連線已關閉"; };
+  } catch (e) {
+    console.error("建立 WebSocket 連線失敗：", e);
+    document.getElementById("lookupResult").innerHTML = "無法建立 WebSocket 連線";
+  }
+}
+
+/**
+ * 刪除指定的預約紀錄
+ * @param {string} key - Firebase 中該筆紀錄的 Key
+ */
+function removeRecord(key) {
+  if (confirm("確定刪除此筆預約紀錄？")) {
+    // 根據當前模組決定 Firebase 的刪除路徑
+    let refPath = "appointments";
+    if (mode === "BD") refPath = "bd_appointments";
+    else if (mode === "IVP") refPath = "ivp_appointments";
+    else if (mode === "MRI") refPath = "mri_appointments";
+
+    db.ref(refPath + "/" + key).remove(err => {
+        if (!err) {
+            alert("紀錄已刪除");
+            loadRecords(); // 重新載入紀錄
+        } else {
+            alert("刪除失敗：" + err.message);
+        }
+    });
+  }
+}
+</script>
+</body>
+</html>
